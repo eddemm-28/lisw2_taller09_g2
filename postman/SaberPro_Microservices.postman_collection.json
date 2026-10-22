@@ -1,0 +1,1361 @@
+{
+  "info": {
+    "_postman_id": "cfd3aa78-20dd-546e-aa13-310a6ac77ee1",
+    "name": "SaberPro Microservices - Taller 09 (Grupo 3)",
+    "description": "Pruebas de comunicación síncrona (REST) y asíncrona (RabbitMQ) del Banco de Preguntas Saber PRO.\n\n1. Levante RabbitMQ con `docker compose up -d` y los 6 microservicios.\n2. Seleccione el entorno **SaberPro Local**.\n3. Ejecute la colección completa con el Collection Runner (en orden): cada carpeta corresponde a un microservicio y las variables (token, question_id, operation_id...) se encadenan entre peticiones.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - User Service (:8081)",
+      "description": "Autenticación síncrona (POST /auth/login) y verificación de roles.",
+      "item": [
+        {
+          "name": "Login con credenciales válidas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK - autenticación exitosa', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('authenticated = true y roles del docente', () => {",
+                  "    pm.expect(body.authenticated).to.be.true;",
+                  "    pm.expect(body.user.roles).to.include('TEACHER');",
+                  "});",
+                  "pm.collectionVariables.set('token', body.token);",
+                  "pm.collectionVariables.set('docente_id', body.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{user_service_url}}/auth/login",
+            "description": "Caso exitoso: el docente se autentica y recibe sus datos básicos, roles y un token opaco de sesión (no JWT).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{docente_username}}\",\n  \"password\": \"{{docente_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login con credenciales incorrectas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized - acceso rechazado', () => pm.response.to.have.status(401));",
+                  "pm.test('authenticated = false', () => pm.expect(pm.response.json().authenticated).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{user_service_url}}/auth/login",
+            "description": "Caso fallido: contraseña incorrecta. Se espera 401 Unauthorized (acceso rechazado).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{docente_username}}\",\n  \"password\": \"clave-incorrecta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login de estudiante (sin rol docente)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('student_token', pm.response.json().token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{user_service_url}}/auth/login",
+            "description": "Se obtiene el token de un estudiante para probar que no puede crear preguntas (403).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"estudiante1\",\n  \"password\": \"estudiante123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Validar token (Authorization)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK - token válido', () => pm.response.to.have.status(200));",
+                  "pm.test('Devuelve el usuario docente', () => pm.expect(pm.response.json().username).to.eql(pm.environment.get('docente_username') || 'docente1'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{user_service_url}}/auth/validate",
+            "description": "Endpoint que usan los demás microservicios para verificar el encabezado Authorization."
+          }
+        },
+        {
+          "name": "Listar usuarios",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Hay al menos 6 usuarios de prueba', () => pm.expect(pm.response.json().length).to.be.at.least(6));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{user_service_url}}/users",
+            "description": "Usuarios de prueba y sus roles."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Validation Service (:8082)",
+      "description": "Validación estructural síncrona (POST /validate).",
+      "item": [
+        {
+          "name": "Validar pregunta válida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('valid = true sin errores', () => {",
+                  "    pm.expect(pm.response.json().valid).to.be.true;",
+                  "    pm.expect(pm.response.json().errors).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{validation_service_url}}/validate",
+            "description": "Enunciado, 4 opciones distintas y clave existente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Qué patrón de diseño garantiza que una clase tenga una única instancia y un punto de acceso global a ella?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Observer\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"Decorator\"\n    }\n  ],\n  \"correctOptionId\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Validar pregunta inválida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK con el resultado de la validación', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('valid = false', () => pm.expect(body.valid).to.be.false);",
+                  "pm.test('Se reportan los errores encontrados', () => pm.expect(body.errors.length).to.be.at.least(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{validation_service_url}}/validate",
+            "description": "3 opciones, distractor repetido, enunciado corto y clave inexistente: se informan todos los errores.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Patrón?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    }\n  ],\n  \"correctOptionId\": \"E\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar reglas de validación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('4 reglas activas', () => pm.expect(pm.response.json().length).to.eql(4));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{validation_service_url}}/validate/rules",
+            "description": "Reglas activas del servicio."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Question Service (:8083)",
+      "description": "Creación síncrona (REST hacia User y Validation Service) y envío asíncrono a revisión (comando en RabbitMQ + 202 Accepted).",
+      "item": [
+        {
+          "name": "Crear pregunta válida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('Pregunta persistida en DRAFT', () => pm.expect(body.status).to.eql('DRAFT'));",
+                  "pm.collectionVariables.set('question_id', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions",
+            "description": "Question Service verifica el token (User Service), valida la estructura (Validation Service), persiste la pregunta y registra el estado DRAFT en Lifecycle Service.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Qué patrón de diseño garantiza que una clase tenga una única instancia y un punto de acceso global a ella?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Observer\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"Decorator\"\n    }\n  ],\n  \"correctOptionId\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear pregunta inválida (falla la validación)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('Se informan los errores de validación', () => pm.expect(body.details.length).to.be.at.least(3));",
+                  "pm.test('El mensaje indica que no se registró', () => pm.expect(body.message).to.include('no fue registrada'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions",
+            "description": "Validation Service rechaza la pregunta: se responde 400 con los errores y la pregunta NO se registra. Se publica el evento ValidationFailed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Patrón?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    }\n  ],\n  \"correctOptionId\": \"E\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear pregunta sin token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{question_service_url}}/questions",
+            "description": "Sin encabezado Authorization: 401.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Qué patrón de diseño garantiza que una clase tenga una única instancia y un punto de acceso global a ella?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Observer\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"Decorator\"\n    }\n  ],\n  \"correctOptionId\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear pregunta con usuario sin rol docente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions",
+            "description": "Un estudiante no puede crear preguntas: 403 Forbidden.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Qué patrón de diseño garantiza que una clase tenga una única instancia y un punto de acceso global a ella?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Observer\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Adapter\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"Decorator\"\n    }\n  ],\n  \"correctOptionId\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear segunda pregunta (queda en DRAFT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('question_draft_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions",
+            "description": "Pregunta auxiliar que permanece en DRAFT para probar transiciones no permitidas.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"En una arquitectura de microservicios, ¿qué código HTTP indica que una solicitud fue aceptada para procesamiento asíncrono?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"200 OK\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"201 Created\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"202 Accepted\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"204 No Content\"\n    }\n  ],\n  \"correctOptionId\": \"C\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Consultar pregunta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Estado DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));",
+                  "pm.test('4 opciones guardadas', () => pm.expect(pm.response.json().options.length).to.eql(4));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/questions/{{question_id}}",
+            "description": "El estado se obtiene de Lifecycle Service (autoridad única sobre los estados)."
+          }
+        },
+        {
+          "name": "Enviar pregunta a revisión (asíncrono)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('Incluye operationId y estado PROCESSING', () => {",
+                  "    pm.expect(body.operationId).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.status).to.eql('PROCESSING');",
+                  "});",
+                  "pm.collectionVariables.set('operation_id', body.operationId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions/{{question_id}}/submit",
+            "description": "Publica el comando SubmitQuestionForReview en RabbitMQ y responde de inmediato 202 Accepted con el operationId."
+          }
+        },
+        {
+          "name": "Consultar operación inmediatamente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const status = pm.response.json().status;",
+                  "console.log('Estado inmediato de la operación:', status);",
+                  "pm.test('La operación no se informa como fallida', () => pm.expect(status).to.be.oneOf(['PENDING', 'COMPLETED']));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/operations/{{operation_id}}",
+            "description": "El 202 no garantiza que la transición terminó: inmediatamente después la operación suele seguir en PENDING (Lifecycle simula 2 s de procesamiento)."
+          }
+        },
+        {
+          "name": "Consultar operación (completada)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Espera 3500 ms para dar tiempo al procesamiento asincrono antes de consultar el resultado",
+                  "setTimeout(() => {}, 3500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Operación COMPLETED', () => pm.expect(body.status).to.eql('COMPLETED'));",
+                  "pm.test('Transición a PENDING_REVIEW', () => pm.expect(body.message).to.include('PENDING_REVIEW'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/operations/{{operation_id}}",
+            "description": "Consulta posterior: Lifecycle Service procesó el comando y la pregunta pasó a PENDING_REVIEW."
+          }
+        },
+        {
+          "name": "Reenviar la misma pregunta (transición asíncrona fallida)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('operation_id_failed', pm.response.json().operationId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions/{{question_id}}/submit",
+            "description": "La solicitud se acepta (202), pero Lifecycle Service la rechazará porque la pregunta ya no está en DRAFT."
+          }
+        },
+        {
+          "name": "Consultar operación fallida",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Espera 3500 ms para dar tiempo al procesamiento asincrono antes de consultar el resultado",
+                  "setTimeout(() => {}, 3500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Operación FAILED', () => pm.expect(body.status).to.eql('FAILED'));",
+                  "pm.test('Motivo: transición no permitida', () => pm.expect(body.message).to.include('Transición no permitida'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/operations/{{operation_id_failed}}",
+            "description": "El cliente consulta el resultado y no se informa falsamente que la transición se completó."
+          }
+        },
+        {
+          "name": "Consultar operación inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/operations/no-existe",
+            "description": "Identificador desconocido: 404."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Lifecycle Service (:8084)",
+      "description": "Autoridad única sobre estados y transiciones (consumidor del comando SubmitQuestionForReview).",
+      "item": [
+        {
+          "name": "Consultar estado de la pregunta enviada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Estado PENDING_REVIEW', () => pm.expect(pm.response.json().state).to.eql('PENDING_REVIEW'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{lifecycle_service_url}}/lifecycle/{{question_id}}",
+            "description": "Después del procesamiento asíncrono la pregunta está en PENDING_REVIEW."
+          }
+        },
+        {
+          "name": "Consultar resultado registrado por Lifecycle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('COMPLETED con estado resultante PENDING_REVIEW', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('COMPLETED');",
+                  "    pm.expect(pm.response.json().resultingState).to.eql('PENDING_REVIEW');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{lifecycle_service_url}}/lifecycle/operations/{{operation_id}}",
+            "description": "Resultado del procesamiento del comando, registrado por Lifecycle Service."
+          }
+        },
+        {
+          "name": "Aprobar una pregunta en DRAFT (transición rechazada)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict - transición rechazada', () => pm.response.to.have.status(409));",
+                  "pm.test('Explica la transición no permitida', () => pm.expect(pm.response.json().message).to.include('DRAFT -> APPROVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{lifecycle_service_url}}/lifecycle/{{question_draft_id}}/transition",
+            "description": "DRAFT -> APPROVED no está permitida por la máquina de estados: 409 Conflict.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetState\": \"APPROVED\",\n  \"changedBy\": \"{{admin_id}}\",\n  \"comment\": \"Intento de aprobación directa\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Estado de la pregunta en DRAFT no cambia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Sigue en DRAFT', () => pm.expect(pm.response.json().state).to.eql('DRAFT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{lifecycle_service_url}}/lifecycle/{{question_draft_id}}",
+            "description": "La transición rechazada no modificó el estado."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Review Service (:8085)",
+      "description": "Asignación de revisores (REST hacia User y Lifecycle) y publicación del evento ReviewerAssigned.",
+      "item": [
+        {
+          "name": "Asignar revisor a pregunta en DRAFT (no elegible)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('Indica que se requiere PENDING_REVIEW', () => pm.expect(pm.response.json().message).to.include('PENDING_REVIEW'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "Solo las preguntas en PENDING_REVIEW son elegibles: 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_draft_id}}\",\n  \"reviewerId\": \"{{reviewer_id}}\",\n  \"assignedBy\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Asignar un estudiante como revisor (no elegible)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "El usuario asignado debe tener el rol REVIEWER y estar activo: 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{student_id}}\",\n  \"assignedBy\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Asignación solicitada por un no administrador",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "Solo un administrador puede asignar revisores: 403.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer_id}}\",\n  \"assignedBy\": \"{{docente_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Asignar revisor a una pregunta elegible",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created - asignación registrada', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('Asignación ASSIGNED', () => pm.expect(body.status).to.eql('ASSIGNED'));",
+                  "pm.test('Evento ReviewerAssigned publicado', () => pm.expect(body.notificationPublished).to.be.true);",
+                  "pm.collectionVariables.set('assignment_id', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "Se verifica la elegibilidad, se registra la asignación, Lifecycle Service aplica PENDING_REVIEW -> IN_REVIEW y se publica ReviewerAssigned.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer_id}}\",\n  \"assignedBy\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verificar estado IN_REVIEW",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Estado IN_REVIEW', () => pm.expect(pm.response.json().state).to.eql('IN_REVIEW'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{lifecycle_service_url}}/lifecycle/{{question_id}}",
+            "description": "La transición fue aplicada por Lifecycle Service."
+          }
+        },
+        {
+          "name": "Asignar de nuevo la misma pregunta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "La pregunta ya está IN_REVIEW: no es elegible (409).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer2_id}}\",\n  \"assignedBy\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Rechazar sin motivo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/result",
+            "description": "El motivo del rechazo es obligatorio: 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer_id}}\",\n  \"result\": \"REJECTED\",\n  \"comments\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Rechazar una pregunta en IN_REVIEW",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('Estado REJECTED', () => pm.expect(body.questionState).to.eql('REJECTED'));",
+                  "pm.test('Motivo registrado', () => pm.expect(body.comments).to.include('distractores'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/result",
+            "description": "El revisor rechaza la pregunta con un motivo: Lifecycle aplica IN_REVIEW -> REJECTED y registra el motivo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer_id}}\",\n  \"result\": \"REJECTED\",\n  \"comments\": \"Los distractores Observer y Adapter no son patrones creacionales; usar distractores del mismo tipo.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Historial de estados con el motivo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const history = pm.response.json();",
+                  "const last = history[history.length - 1];",
+                  "pm.test('Última transición IN_REVIEW -> REJECTED con motivo', () => {",
+                  "    pm.expect(last.fromState).to.eql('IN_REVIEW');",
+                  "    pm.expect(last.toState).to.eql('REJECTED');",
+                  "    pm.expect(last.comment).to.include('distractores');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{lifecycle_service_url}}/lifecycle/{{question_id}}/history",
+            "description": "Auditoría de transiciones en Lifecycle Service."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Notification Service (:8086)",
+      "description": "Consulta de las notificaciones generadas de forma asíncrona a partir de los eventos de RabbitMQ.",
+      "item": [
+        {
+          "name": "Notificación al revisor (ReviewerAssigned)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Espera 2500 ms para dar tiempo al procesamiento asincrono antes de consultar el resultado",
+                  "setTimeout(() => {}, 2500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const questionId = Number(pm.collectionVariables.get('question_id'));",
+                  "const found = pm.response.json().find(n => n.questionId === questionId);",
+                  "pm.test('Notificación generada para la pregunta asignada', () => pm.expect(found).to.not.be.undefined);",
+                  "pm.test('Estado SENT', () => pm.expect(found.status).to.eql('SENT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{notification_service_url}}/notifications?recipientId={{reviewer_id}}&type=REVIEWER_ASSIGNED",
+            "description": "El evento ReviewerAssigned fue consumido y la notificación se envió (simulada)."
+          }
+        },
+        {
+          "name": "Notificaciones del autor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const types = pm.response.json().map(n => n.type);",
+                  "pm.test('Incluye VALIDATION_FAILED', () => pm.expect(types).to.include('VALIDATION_FAILED'));",
+                  "pm.test('Incluye QUESTION_SUBMITTED', () => pm.expect(types).to.include('QUESTION_SUBMITTED'));",
+                  "pm.test('Incluye QUESTION_REJECTED', () => pm.expect(types).to.include('QUESTION_REJECTED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{notification_service_url}}/notifications?recipientId={{docente_id}}",
+            "description": "El autor recibió: validación fallida, envío a revisión y rechazo con su motivo."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Escenario: corrección y aprobación",
+      "description": "Una pregunta rechazada se corrige, vuelve al proceso de revisión y finalmente se aprueba.",
+      "item": [
+        {
+          "name": "Corregir la pregunta rechazada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Vuelve a DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions/{{question_id}}",
+            "description": "Se valida de nuevo y Lifecycle aplica REJECTED -> DRAFT: puede volver al proceso de revisión.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"¿Qué patrón de diseño creacional garantiza que una clase tenga una única instancia y ofrece un punto de acceso global a ella?\",\n  \"options\": [\n    {\n      \"id\": \"A\",\n      \"text\": \"Singleton\"\n    },\n    {\n      \"id\": \"B\",\n      \"text\": \"Factory Method\"\n    },\n    {\n      \"id\": \"C\",\n      \"text\": \"Prototype\"\n    },\n    {\n      \"id\": \"D\",\n      \"text\": \"Builder\"\n    }\n  ],\n  \"correctOptionId\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reenviar a revisión",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('operation_id_resubmit', pm.response.json().operationId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{question_service_url}}/questions/{{question_id}}/submit",
+            "description": "Nuevo comando asíncrono."
+          }
+        },
+        {
+          "name": "Consultar operación de reenvío",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Espera 3500 ms para dar tiempo al procesamiento asincrono antes de consultar el resultado",
+                  "setTimeout(() => {}, 3500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Operación COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/operations/{{operation_id_resubmit}}",
+            "description": "La pregunta corregida volvió a PENDING_REVIEW."
+          }
+        },
+        {
+          "name": "Asignar un nuevo revisor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Asignación ASSIGNED', () => pm.expect(pm.response.json().status).to.eql('ASSIGNED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/assign",
+            "description": "Segunda ronda de revisión.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer2_id}}\",\n  \"assignedBy\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Aprobar la pregunta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Estado APPROVED', () => pm.expect(pm.response.json().questionState).to.eql('APPROVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{review_service_url}}/reviews/result",
+            "description": "IN_REVIEW -> APPROVED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{question_id}}\",\n  \"reviewerId\": \"{{reviewer2_id}}\",\n  \"result\": \"APPROVED\",\n  \"comments\": \"Distractores corregidos; la pregunta cumple los criterios de calidad.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Estado final de la pregunta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Estado APPROVED', () => pm.expect(pm.response.json().status).to.eql('APPROVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{question_service_url}}/questions/{{question_id}}",
+            "description": "Consulta final desde Question Service."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "student_token",
+      "value": ""
+    },
+    {
+      "key": "docente_id",
+      "value": ""
+    },
+    {
+      "key": "question_id",
+      "value": ""
+    },
+    {
+      "key": "question_draft_id",
+      "value": ""
+    },
+    {
+      "key": "operation_id",
+      "value": ""
+    },
+    {
+      "key": "operation_id_failed",
+      "value": ""
+    },
+    {
+      "key": "operation_id_resubmit",
+      "value": ""
+    },
+    {
+      "key": "assignment_id",
+      "value": ""
+    }
+  ]
+}
