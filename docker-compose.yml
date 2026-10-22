@@ -3,7 +3,7 @@
 #   Administracion:  http://localhost:15672  (usuario guest / clave guest)
 services:
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4-management
     container_name: saberpro-rabbitmq
     ports:
       - "5672:5672"    # Puerto AMQP para microservicios
