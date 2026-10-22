@@ -1,0 +1,10 @@
+server:
+  port: ${SERVER_PORT:8082}
+
+spring:
+  application:
+    name: validation-service
+
+validation:
+  statement:
+    min-length: ${VALIDATION_MIN_STATEMENT_LENGTH:10}
