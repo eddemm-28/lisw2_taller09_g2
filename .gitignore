@@ -1,0 +1,24 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+nbproject/
+nbactions.xml
+nb-configuration.xml
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Datos locales (bases H2 en archivo) y logs de ejecucion
+data/
+logs/
+*.log
