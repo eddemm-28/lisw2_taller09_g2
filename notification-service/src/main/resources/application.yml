@@ -1,0 +1,36 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  application:
+    name: notification-service
+  # Base de datos propia del microservicio (Database per Service), persistente en ./data
+  datasource:
+    url: jdbc:h2:file:./data/notificationdb
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    listener:
+      simple:
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+
+notification:
+  # Tiempo simulado de envio del correo (no bloquea a quien publico el evento)
+  simulated-send-delay-ms: ${NOTIFICATION_SEND_DELAY_MS:1500}
